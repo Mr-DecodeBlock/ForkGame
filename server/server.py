@@ -4,31 +4,27 @@ import json
 import logging
 import websockets
 import maps
-import threading
-import time
 import weapons
 import ruta
 import math
-import os
+
+from config import SERVER_CONF
 
 logging.basicConfig()
-users_pos={}
+
 USERS = {}
 maps.populate_tiles()
-async def register(ws,map,nombre):
+async def register(ws,map):
     USERS[ws] = {"mapa":map,"id":str(ws)}
 
-async def encontrar(ws,new_map,WS):#encontrar y eliminar un persona del mapa
-    results=[]
+async def encontrar(ws,actual_map,new_map,WS):#encontrar y eliminar una persona del mapa
     player_target = {}
-    for map in maps.world:
-        for player in maps.world[map]["players"]:
-            if player == ws:
-                results.append(map)
-                player_target = maps.world[map]["players"][player]
-                break
-    if results:
-        maps.world[results[0]]["players"].pop(ws)
+    for player in actual_map["players"]:
+        if player == ws:
+            player_target = actual_map["players"][player]
+            break 
+    if player_target:
+        actual_map["players"].pop(ws)
         new_map["players"][ws] = player_target
         USERS[WS]["mapa"]=new_map["map_name"]
 
@@ -291,74 +287,75 @@ async def action(websocket, path): #Escuchar acciones del cliente
     try:
          async for message in websocket:
             data = json.loads(message)
-            if data[0]['type']=='new_state':
-                map=maps.world[data[1]['map']]
-                map_name=data[1]['map']
-                posX=data[1]['posX']
-                posY=data[1]['posY']
-                desX = data[1]['desX']
-                desY = data[1]['desY']
+            if data['type']=='new_state':
+                map=maps.world[data['map']]
+                map_name=data['map']
+                posX=data['posX']
+                posY=data['posY']
+                desX = data['desX']
+                desY = data['desY']
                 await player_refresh(map,map_name,posX,posY,str(websocket),desX,desY)
-            elif data[0]['type']=='new_position':
-                map=maps.world[data[1]['map']]
-                dir=data[1]['dir']
-                step=data[1]['step']
-                moves=data[1]['moves']
-                action=data[1]['action']
+            elif data['type']=='new_position':
+                map=maps.world[data['map']]
+                dir=data['dir']
+                step=data['step']
+                moves=data['moves']
+                action=data['action']
                 await update_position(map,dir,action,str(websocket),step,moves)
-            elif data[0]['type']=='new_map':
-                actual_map=maps.world[data[1]['actual_map']]
-                new_map=maps.world[data[1]['new_map']]
-                posX=data[1]['posX']
-                posY=data[1]['posY']
-                await encontrar(str(websocket),new_map,websocket)
+            elif data['type']=='new_map':
+                actual_map=maps.world[data['actual_map']] 
+                new_map=maps.world[data['new_map']]
+                posX=data['posX']
+                posY=data['posY']
+                await encontrar(str(websocket),actual_map,new_map,websocket)
                 await new_map_player(new_map,dir,posX,posY,str(websocket))
-                await update_players(data[1]['new_map'],data[1]['actual_map'],str(websocket))
-            elif data[0]['type']=='start':
-                await register(websocket,data[1]['map'],data[1]['player_name'])
-                map=maps.world[data[1]['map']]
-                map_name=data[1]['map']
-                fase = data[1]['fase']
-                player_name=data[1]['player_name']
-                body=data[1]['body']
-                hair=data[1]['hair']
-                outfit=data[1]['outfit']
+                await update_players(data['new_map'],data['actual_map'],str(websocket))
+            elif data['type']=='start':
+                await register(websocket,data['map'])
+                map=maps.world[data['map']]
+                map_name=data['map']
+                fase = data['fase']
+                player_name=data['player_name']
+                body=data['body']
+                hair=data['hair']
+                outfit=data['outfit']
                 await start_player(map,map_name,player_name,body,hair,outfit,str(websocket),fase)
-            elif data[0]['type']=='attack':
-                map=maps.world[data[1]['map']]
-                target=data[1]['ws']
+            elif data['type']=='attack':
+                map=maps.world[data['map']]
+                target=data['ws']
                 player=str(websocket)
-                weapon=data[1]['weapon']
-                wx=data[1]['Wx']
-                wy=data[1]['Wy']
+                weapon=data['weapon']
+                wx=data['Wx']
+                wy=data['Wy']
                 await player_attacked(map,target,player,weapon,wx,wy)
-            elif data[0]['type']=='dead_player':
+            elif data['type']=='dead_player':
                 await unregister(websocket)
-            elif data[0]['type']=='stop':
-                map_name=data[1]['map']
-                map=maps.world[data[1]['map']]
+            elif data['type']=='stop':
+                map_name=data['map']
+                map=maps.world[data['map']]
                 await stop_player(str(websocket),map,map_name)
-            elif data[0]['type']=='chat':
-                map_name=data[1]['map']
-                player_name=data[1]['player_name']
-                chat=data[1]['chat']
+            elif data['type']=='chat':
+                map_name=data['map']
+                player_name=data['player_name']
+                chat=data['chat']
                 await send_msj(str(websocket),player_name,map_name,chat)
-            elif data[0]['type']=='attack_action':
-                target=data[1]['target_id']
+            elif data['type']=='attack_action':
+                target=data['target_id']
                 player=str(websocket)
-                px=data[1]['px']
-                py=data[1]['py']
-                tx=data[1]['tx']
-                ty=data[1]['ty']
-                weapon=data[1]['weapon']
+                px=data['px']
+                py=data['py']
+                tx=data['tx']
+                ty=data['ty']
+                weapon=data['weapon']
                 await new_attack(px,py,tx,ty,target,player,weapon)
             else:
-                logging.error("unsupported event: {}", data)
+                logging.error(f'unsupported event: {data}')
     finally:
         await unregister(websocket)
 
-#Para correr el server localmente habilidar la linea 361 y comentar la linea 362
-#start_server = websockets.serve(action, "192.168.0.4", 6789)
-start_server = websockets.serve(action, "", int(os.environ["PORT"]))
+
+#Desabilita la advertencia pylint, que se activa porque websockets hace un lazy load de las propiedades
+#pylint: disable = no-member
+start_server = websockets.serve(action, SERVER_CONF.IP, int(SERVER_CONF.PORT))
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()
